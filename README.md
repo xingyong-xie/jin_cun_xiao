@@ -107,14 +107,14 @@ jin_cun_xiao/
 cd client && npm install
 cd ../server && npm install
 
-# 启动开发环境（前后端同时运行）
+# 启动开发环境（前后端同时运行，项目根目录执行）
 npm run dev
 # 开发模式访问地址：http://localhost:5173（Vite 自动代理 /api 到后端 3001）
 
-# 单独启动后端（端口 3001）
+# 单独启动后端（端口 3001，项目根目录执行）
 npm run dev:server
 
-# 单独启动前端（端口 5173，自动代理 /api 到后端）
+# 单独启动前端（端口 5173，自动代理 /api 到后端，项目根目录执行）
 npm run dev:client
 
 # 构建前端
@@ -145,6 +145,7 @@ cd client && npm install && npm run build
 # 启动服务（自动服务前端静态文件）
 cd ../server && npm install --production && node index.js
 # 生产模式访问地址：http://localhost:3001
+# 注意：必须在 server/ 目录下执行 node index.js，不能在项目根目录执行
 ```
 
 ### 数据备份与恢复
@@ -157,10 +158,10 @@ cd ../server && npm install --production && node index.js
 默认端口 `3001`，可通过环境变量修改：
 
 ```bash
-# Linux/macOS
+# Linux/macOS（在项目根目录执行）
 PORT=8080 node server/index.js
 
-# Windows
+# Windows（在项目根目录执行）
 set PORT=8080
 node server/index.js
 ```
