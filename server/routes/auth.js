@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { getDb, saveDb } = require('../db/database');
+const { getDb, saveDb, rowsToObjects, rowToObject } = require('../db/database');
 const { authMiddleware, adminOnly, JWT_SECRET } = require('../middleware/auth');
 
 const router = express.Router();
@@ -16,15 +16,11 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: '请输入用户名和密码' });
     }
 
-    const result = db.exec('SELECT * FROM users WHERE username = ?', [username]);
-    if (result.length === 0 || result[0].values.length === 0) {
+    const result = await db.execute('SELECT * FROM users WHERE username = ?', [username]);
+    const user = rowToObject(result);
+    if (!user) {
       return res.status(401).json({ error: '用户名或密码错误' });
     }
-
-    const columns = result[0].columns;
-    const row = result[0].values[0];
-    const user = {};
-    columns.forEach((col, i) => { user[col] = row[i]; });
 
     const isValid = bcrypt.compareSync(password, user.password);
     if (!isValid) {
@@ -50,14 +46,11 @@ router.post('/login', async (req, res) => {
 router.get('/me', authMiddleware, async (req, res) => {
   try {
     const db = await getDb();
-    const result = db.exec('SELECT id, username, role, created_at FROM users WHERE id = ?', [req.user.id]);
-    if (result.length === 0 || result[0].values.length === 0) {
+    const result = await db.execute('SELECT id, username, role, created_at FROM users WHERE id = ?', [req.user.id]);
+    const user = rowToObject(result);
+    if (!user) {
       return res.status(404).json({ error: '用户不存在' });
     }
-    const columns = result[0].columns;
-    const row = result[0].values[0];
-    const user = {};
-    columns.forEach((col, i) => { user[col] = row[i]; });
     res.json(user);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -68,13 +61,8 @@ router.get('/me', authMiddleware, async (req, res) => {
 router.get('/users', authMiddleware, adminOnly, async (req, res) => {
   try {
     const db = await getDb();
-    const result = db.exec('SELECT id, username, role, created_at FROM users ORDER BY id');
-    const rows = result.length > 0 ? result[0].values.map(row => {
-      const obj = {};
-      result[0].columns.forEach((col, i) => { obj[col] = row[i]; });
-      return obj;
-    }) : [];
-    res.json(rows);
+    const result = await db.execute('SELECT id, username, role, created_at FROM users ORDER BY id');
+    res.json(rowsToObjects(result));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -90,13 +78,13 @@ router.post('/users', authMiddleware, adminOnly, async (req, res) => {
       return res.status(400).json({ error: '请输入用户名和密码' });
     }
 
-    const existing = db.exec('SELECT id FROM users WHERE username = ?', [username]);
-    if (existing.length > 0 && existing[0].values.length > 0) {
+    const existing = await db.execute('SELECT id FROM users WHERE username = ?', [username]);
+    if (rowToObject(existing)) {
       return res.status(400).json({ error: '用户名已存在' });
     }
 
     const hashedPassword = bcrypt.hashSync(password, 10);
-    db.run('INSERT INTO users (username, password, role) VALUES (?, ?, ?)',
+    await db.run('INSERT INTO users (username, password, role) VALUES (?, ?, ?)',
       [username, hashedPassword, role || 'operator']);
     saveDb();
 
@@ -115,10 +103,10 @@ router.put('/users/:id', authMiddleware, adminOnly, async (req, res) => {
 
     if (password) {
       const hashedPassword = bcrypt.hashSync(password, 10);
-      db.run('UPDATE users SET username = ?, password = ?, role = ? WHERE id = ?',
+      await db.run('UPDATE users SET username = ?, password = ?, role = ? WHERE id = ?',
         [username, hashedPassword, role, userId]);
     } else {
-      db.run('UPDATE users SET username = ?, role = ? WHERE id = ?',
+      await db.run('UPDATE users SET username = ?, role = ? WHERE id = ?',
         [username, role, userId]);
     }
     saveDb();
@@ -138,7 +126,7 @@ router.delete('/users/:id', authMiddleware, adminOnly, async (req, res) => {
       return res.status(400).json({ error: '不能删除当前登录的用户' });
     }
 
-    db.run('DELETE FROM users WHERE id = ?', [req.params.id]);
+    await db.run('DELETE FROM users WHERE id = ?', [req.params.id]);
     saveDb();
 
     res.json({ message: '用户删除成功' });

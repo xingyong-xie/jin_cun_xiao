@@ -12,7 +12,6 @@ const inventoryRoutes = require('./routes/inventory');
 const dashboardRoutes = require('./routes/dashboard');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
@@ -26,7 +25,7 @@ app.use('/api/sales-orders', salesRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
-// Serve frontend static files in production
+// Serve frontend static files in production (local only)
 const clientDist = path.join(__dirname, '..', 'client', 'dist');
 app.use(express.static(clientDist));
 app.get('*', (req, res) => {
@@ -35,14 +34,29 @@ app.get('*', (req, res) => {
   }
 });
 
-async function start() {
-  await initDatabase();
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+// Vercel 环境：数据库初始化中间件（每次冷启动时执行一次）
+let dbInitialized = false;
+app.use(async (req, res, next) => {
+  if (!dbInitialized) {
+    await initDatabase();
+    dbInitialized = true;
+  }
+  next();
+});
+
+// 本地开发：启动 Express 服务器
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 3001;
+  async function start() {
+    await initDatabase();
+    app.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
+  start().catch(err => {
+    console.error('Failed to start server:', err);
+    process.exit(1);
   });
 }
 
-start().catch(err => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
+module.exports = app;

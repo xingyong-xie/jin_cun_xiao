@@ -1,17 +1,8 @@
 const express = require('express');
-const { getDb, saveDb } = require('../db/database');
+const { getDb, saveDb, rowsToObjects, rowToObject } = require('../db/database');
 const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
-
-function rowsToObjects(result) {
-  if (result.length === 0) return [];
-  return result[0].values.map(row => {
-    const obj = {};
-    result[0].columns.forEach((col, i) => { obj[col] = row[i]; });
-    return obj;
-  });
-}
 
 // List products
 router.get('/', authMiddleware, async (req, res) => {
@@ -31,7 +22,7 @@ router.get('/', authMiddleware, async (req, res) => {
     }
     sql += ' ORDER BY id DESC';
 
-    const result = db.exec(sql, params);
+    const result = await db.execute(sql, params);
     res.json(rowsToObjects(result));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -48,12 +39,12 @@ router.post('/', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: '商品名称和编码为必填项' });
     }
 
-    const existing = db.exec('SELECT id FROM products WHERE sku = ?', [sku]);
-    if (existing.length > 0 && existing[0].values.length > 0) {
+    const existing = await db.execute('SELECT id FROM products WHERE sku = ?', [sku]);
+    if (rowToObject(existing)) {
       return res.status(400).json({ error: '商品编码已存在' });
     }
 
-    db.run(
+    await db.run(
       'INSERT INTO products (name, sku, category, unit, purchase_price, sale_price, min_stock) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [name, sku, category || '', unit || '个', purchase_price || 0, sale_price || 0, min_stock || 0]
     );
@@ -71,7 +62,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
     const db = await getDb();
     const { name, sku, category, unit, purchase_price, sale_price, min_stock } = req.body;
 
-    db.run(
+    await db.run(
       'UPDATE products SET name=?, sku=?, category=?, unit=?, purchase_price=?, sale_price=?, min_stock=? WHERE id=?',
       [name, sku, category || '', unit || '个', purchase_price || 0, sale_price || 0, min_stock || 0, req.params.id]
     );
@@ -88,13 +79,13 @@ router.delete('/:id', authMiddleware, async (req, res) => {
   try {
     const db = await getDb();
 
-    const items = db.exec('SELECT id FROM purchase_order_items WHERE product_id = ? LIMIT 1', [req.params.id]);
-    const salesItems = db.exec('SELECT id FROM sales_order_items WHERE product_id = ? LIMIT 1', [req.params.id]);
-    if ((items.length > 0 && items[0].values.length > 0) || (salesItems.length > 0 && salesItems[0].values.length > 0)) {
+    const items = await db.execute('SELECT id FROM purchase_order_items WHERE product_id = ? LIMIT 1', [req.params.id]);
+    const salesItems = await db.execute('SELECT id FROM sales_order_items WHERE product_id = ? LIMIT 1', [req.params.id]);
+    if (rowToObject(items) || rowToObject(salesItems)) {
       return res.status(400).json({ error: '该商品已有出入库记录，无法删除' });
     }
 
-    db.run('DELETE FROM products WHERE id = ?', [req.params.id]);
+    await db.run('DELETE FROM products WHERE id = ?', [req.params.id]);
     saveDb();
 
     res.json({ message: '商品删除成功' });

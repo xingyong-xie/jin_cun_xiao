@@ -1,24 +1,8 @@
 const express = require('express');
-const { getDb, saveDb } = require('../db/database');
+const { getDb, saveDb, rowsToObjects, rowToObject } = require('../db/database');
 const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
-
-function rowsToObjects(result) {
-  if (result.length === 0) return [];
-  return result[0].values.map(row => {
-    const obj = {};
-    result[0].columns.forEach((col, i) => { obj[col] = row[i]; });
-    return obj;
-  });
-}
-
-function rowToObject(result) {
-  if (result.length === 0 || result[0].values.length === 0) return null;
-  const obj = {};
-  result[0].columns.forEach((col, i) => { obj[col] = result[0].values[0][i]; });
-  return obj;
-}
 
 function generateOrderNo() {
   const now = new Date();
@@ -58,11 +42,11 @@ router.get('/', authMiddleware, async (req, res) => {
     }
     sql += ' ORDER BY so.id DESC';
 
-    const result = db.exec(sql, params);
+    const result = await db.execute(sql, params);
     const orders = rowsToObjects(result);
 
     for (let order of orders) {
-      const itemsResult = db.exec(
+      const itemsResult = await db.execute(
         `SELECT soi.*, p.name as product_name, p.sku as product_sku, p.unit as product_unit
          FROM sales_order_items soi
          LEFT JOIN products p ON soi.product_id = p.id
@@ -82,7 +66,7 @@ router.get('/', authMiddleware, async (req, res) => {
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
     const db = await getDb();
-    const result = db.exec(
+    const result = await db.execute(
       `SELECT so.*, c.name as customer_name, c.contact as customer_contact, c.phone as customer_phone,
               u.username as operator_name
        FROM sales_orders so
@@ -96,7 +80,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: '销货单不存在' });
     }
 
-    const itemsResult = db.exec(
+    const itemsResult = await db.execute(
       `SELECT soi.*, p.name as product_name, p.sku as product_sku, p.unit as product_unit
        FROM sales_order_items soi
        LEFT JOIN products p ON soi.product_id = p.id
@@ -123,7 +107,7 @@ router.post('/', authMiddleware, async (req, res) => {
 
     // Check stock availability
     for (const item of items) {
-      const productResult = db.exec('SELECT stock_quantity, name FROM products WHERE id = ?', [item.product_id]);
+      const productResult = await db.execute('SELECT stock_quantity, name FROM products WHERE id = ?', [item.product_id]);
       const product = rowToObject(productResult);
       if (!product) {
         return res.status(400).json({ error: `商品ID ${item.product_id} 不存在` });
@@ -136,16 +120,14 @@ router.post('/', authMiddleware, async (req, res) => {
     const orderNo = generateOrderNo();
     const totalAmount = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
 
-    db.run(
+    const orderResult = await db.run(
       'INSERT INTO sales_orders (order_no, customer_id, total_amount, status, operator_id) VALUES (?, ?, ?, ?, ?)',
       [orderNo, customer_id, totalAmount, 'pending', req.user.id]
     );
-
-    const orderResult = db.exec('SELECT last_insert_rowid() as id');
-    const orderId = orderResult[0].values[0][0];
+    const orderId = Number(orderResult.lastInsertRowid);
 
     for (const item of items) {
-      db.run(
+      await db.run(
         'INSERT INTO sales_order_items (order_id, product_id, quantity, unit_price, amount) VALUES (?, ?, ?, ?, ?)',
         [orderId, item.product_id, item.quantity, item.unit_price, item.quantity * item.unit_price]
       );
@@ -164,7 +146,7 @@ router.put('/:id/confirm', authMiddleware, async (req, res) => {
     const db = await getDb();
     const orderId = req.params.id;
 
-    const result = db.exec('SELECT * FROM sales_orders WHERE id = ?', [orderId]);
+    const result = await db.execute('SELECT * FROM sales_orders WHERE id = ?', [orderId]);
     const order = rowToObject(result);
     if (!order) {
       return res.status(404).json({ error: '销货单不存在' });
@@ -173,26 +155,26 @@ router.put('/:id/confirm', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: '只有待出库的单据才能确认出库' });
     }
 
-    const itemsResult = db.exec('SELECT * FROM sales_order_items WHERE order_id = ?', [orderId]);
+    const itemsResult = await db.execute('SELECT * FROM sales_order_items WHERE order_id = ?', [orderId]);
     const items = rowsToObjects(itemsResult);
 
     for (const item of items) {
-      const productResult = db.exec('SELECT stock_quantity, name FROM products WHERE id = ?', [item.product_id]);
+      const productResult = await db.execute('SELECT stock_quantity, name FROM products WHERE id = ?', [item.product_id]);
       const product = rowToObject(productResult);
       if (product.stock_quantity < item.quantity) {
         return res.status(400).json({ error: `商品「${product.name}」库存不足，当前库存: ${product.stock_quantity}` });
       }
 
-      db.run('UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?',
+      await db.run('UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?',
         [item.quantity, item.product_id]);
 
-      db.run(
+      await db.run(
         'INSERT INTO stock_movements (product_id, type, quantity, order_id, operator_id) VALUES (?, ?, ?, ?, ?)',
         [item.product_id, 'sales_out', item.quantity, orderId, req.user.id]
       );
     }
 
-    db.run("UPDATE sales_orders SET status = 'confirmed' WHERE id = ?", [orderId]);
+    await db.run("UPDATE sales_orders SET status = 'confirmed' WHERE id = ?", [orderId]);
     saveDb();
 
     res.json({ message: '出库确认成功' });
@@ -207,7 +189,7 @@ router.put('/:id/return', authMiddleware, async (req, res) => {
     const db = await getDb();
     const orderId = req.params.id;
 
-    const result = db.exec('SELECT * FROM sales_orders WHERE id = ?', [orderId]);
+    const result = await db.execute('SELECT * FROM sales_orders WHERE id = ?', [orderId]);
     const order = rowToObject(result);
     if (!order) {
       return res.status(404).json({ error: '销货单不存在' });
@@ -216,20 +198,20 @@ router.put('/:id/return', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: '只有已出库的单据才能退货' });
     }
 
-    const itemsResult = db.exec('SELECT * FROM sales_order_items WHERE order_id = ?', [orderId]);
+    const itemsResult = await db.execute('SELECT * FROM sales_order_items WHERE order_id = ?', [orderId]);
     const items = rowsToObjects(itemsResult);
 
     for (const item of items) {
-      db.run('UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?',
+      await db.run('UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?',
         [item.quantity, item.product_id]);
 
-      db.run(
+      await db.run(
         'INSERT INTO stock_movements (product_id, type, quantity, order_id, operator_id) VALUES (?, ?, ?, ?, ?)',
         [item.product_id, 'return_in', item.quantity, orderId, req.user.id]
       );
     }
 
-    db.run("UPDATE sales_orders SET status = 'returned' WHERE id = ?", [orderId]);
+    await db.run("UPDATE sales_orders SET status = 'returned' WHERE id = ?", [orderId]);
     saveDb();
 
     res.json({ message: '退货成功' });

@@ -1,10 +1,10 @@
 const bcrypt = require('bcryptjs');
-const { getDb, saveDb } = require('./database');
+const { getDb, saveDb, rowToObject } = require('./database');
 
 async function initDatabase() {
   const db = await getDb();
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
@@ -14,7 +14,7 @@ async function initDatabase() {
     )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -29,7 +29,7 @@ async function initDatabase() {
     )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS suppliers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -40,7 +40,7 @@ async function initDatabase() {
     )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS customers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -51,7 +51,7 @@ async function initDatabase() {
     )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS purchase_orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_no TEXT UNIQUE NOT NULL,
@@ -65,7 +65,7 @@ async function initDatabase() {
     )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS purchase_order_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id INTEGER NOT NULL,
@@ -78,7 +78,7 @@ async function initDatabase() {
     )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS sales_orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_no TEXT UNIQUE NOT NULL,
@@ -92,7 +92,7 @@ async function initDatabase() {
     )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS sales_order_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id INTEGER NOT NULL,
@@ -105,7 +105,7 @@ async function initDatabase() {
     )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS stock_movements (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       product_id INTEGER NOT NULL,
@@ -120,10 +120,11 @@ async function initDatabase() {
   `);
 
   // Create default admin user
-  const users = db.exec("SELECT id FROM users WHERE username = 'admin'");
-  if (users.length === 0 || users[0].values.length === 0) {
+  const result = await db.execute("SELECT id FROM users WHERE username = 'admin'");
+  const user = rowToObject(result);
+  if (!user) {
     const hashedPassword = bcrypt.hashSync('admin123', 10);
-    db.run(
+    await db.run(
       "INSERT INTO users (username, password, role) VALUES ('admin', ?, 'admin')",
       [hashedPassword]
     );
