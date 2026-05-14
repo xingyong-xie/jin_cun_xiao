@@ -109,6 +109,7 @@ cd ../server && npm install
 
 # 启动开发环境（前后端同时运行）
 npm run dev
+# 开发模式访问地址：http://localhost:5173（Vite 自动代理 /api 到后端 3001）
 
 # 单独启动后端（端口 3001）
 npm run dev:server
@@ -125,7 +126,7 @@ cd client && npm run build
 ### 方式一：Windows 脚本部署（推荐）
 
 1. **首次安装**：双击 `deploy/setup.bat`，自动安装依赖并构建前端
-2. **启动服务**：双击 `deploy/start.bat`，访问 http://localhost:3001
+2. **启动服务**：双击 `deploy/start.bat`，访问 http://localhost:3001（生产模式）
 3. **停止服务**：双击 `deploy/stop.bat`
 
 ### 方式二：注册为 Windows 服务（开机自启）
@@ -143,6 +144,7 @@ cd client && npm install && npm run build
 
 # 启动服务（自动服务前端静态文件）
 cd ../server && npm install --production && node index.js
+# 生产模式访问地址：http://localhost:3001
 ```
 
 ### 数据备份与恢复
