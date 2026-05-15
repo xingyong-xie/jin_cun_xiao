@@ -16,6 +16,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Vercel 环境：数据库初始化中间件（每次冷启动时执行一次，必须放在路由之前）
+let dbInitialized = false;
+app.use(async (req, res, next) => {
+  if (!dbInitialized) {
+    await initDatabase();
+    dbInitialized = true;
+  }
+  next();
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/suppliers', supplierRoutes);
@@ -32,16 +42,6 @@ app.get('*', (req, res) => {
   if (!req.path.startsWith('/api')) {
     res.sendFile(path.join(clientDist, 'index.html'));
   }
-});
-
-// Vercel 环境：数据库初始化中间件（每次冷启动时执行一次）
-let dbInitialized = false;
-app.use(async (req, res, next) => {
-  if (!dbInitialized) {
-    await initDatabase();
-    dbInitialized = true;
-  }
-  next();
 });
 
 // 本地开发：启动 Express 服务器
