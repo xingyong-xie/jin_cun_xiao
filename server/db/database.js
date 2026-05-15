@@ -50,13 +50,14 @@ async function getDb() {
       async execute(sql, params = []) {
         const result = await client.execute({ sql, args: params });
         // 转换为 sql.js 格式：[{ columns, values }]
-        if (result.rows.length === 0) {
-          return [{ columns: result.columns, values: [] }];
+        const columns = result.columns || [];
+        if (!result.rows || result.rows.length === 0) {
+          return [{ columns, values: [] }];
         }
         const values = result.rows.map(row =>
-          result.columns.map(col => row[col])
+          columns.map(col => row[col])
         );
-        return [{ columns: result.columns, values }];
+        return [{ columns, values }];
       },
 
       async run(sql, params = []) {

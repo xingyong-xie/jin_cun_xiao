@@ -35,17 +35,20 @@ app.use('/api/sales-orders', salesRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
-// Serve frontend static files in production (local only)
-const clientDist = path.join(__dirname, '..', 'client', 'dist');
-app.use(express.static(clientDist));
-app.get('*', (req, res) => {
-  if (!req.path.startsWith('/api')) {
-    res.sendFile(path.join(clientDist, 'index.html'));
-  }
+// 404 处理：未匹配的 /api 路由返回 JSON 错误
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: '接口不存在' });
 });
 
-// 本地开发：启动 Express 服务器
 if (!process.env.VERCEL) {
+  // 本地开发：服务前端静态文件 + SPA fallback
+  const clientDist = path.join(__dirname, '..', 'client', 'dist');
+  app.use(express.static(clientDist));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+
+  // 启动 Express 服务器
   const PORT = process.env.PORT || 3001;
   async function start() {
     await initDatabase();
