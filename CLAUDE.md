@@ -32,12 +32,12 @@ No test framework, linter, or TypeScript is configured.
 **Monorepo** with two independent npm projects:
 
 - **client/** — React 18 + Ant Design 5 + React Router 6, bundled with Vite. ESM (`"type": "module"`).
-- **server/** — Express 4 + sql.js (SQLite via WebAssembly), CommonJS. No TypeScript.
+- **server/** — Express 4 + sql.js (SQLite, local) / PostgreSQL (cloud), CommonJS. No TypeScript.
 
 ### Client-Server Communication
 
 - REST API over `/api` prefix
-- JWT Bearer token auth (24h expiry, secret hardcoded in `server/middleware/auth.js`)
+- JWT Bearer token auth (24h expiry, secret from `JWT_SECRET` env var or hardcoded fallback)
 - Dev: Vite proxies `/api` → `http://localhost:3001`
 - Prod: Express serves `client/dist/` as static + SPA fallback
 
@@ -51,16 +51,19 @@ No test framework, linter, or TypeScript is configured.
 ### Server Structure
 
 - `index.js` — Express setup, mounts all route modules, production static serving
-- `db/database.js` — Singleton SQLite connection via sql.js. **Important**: sql.js is in-memory; `saveDb()` must be called after every mutation to persist to `server/data/jin_xiao_cun.db`
-- `db/init.js` — Creates tables if missing, seeds default admin (`admin`/`admin123`)
+- `db/database.js` — Dual-mode database adapter: sql.js (local SQLite) or PostgreSQL (cloud). Detects `DATABASE_URL` env var for PostgreSQL mode. Auto-converts `?` → `$1,$2...` placeholders and `LIKE` → `ILIKE` for PG compatibility. **Important**: sql.js mode requires `saveDb()` after mutations to persist; PostgreSQL mode auto-commits.
+- `db/init.js` — Creates tables if missing (separate SQL for SQLite/PostgreSQL), seeds default admin (`admin`/`admin123`)
 - `middleware/auth.js` — JWT verification + admin-only guard
 - `routes/` — One file per resource: `auth`, `products`, `suppliers`, `customers`, `purchase`, `sales`, `inventory`, `dashboard`
 
-### Database (SQLite via sql.js)
+### Database (Dual-mode: SQLite / PostgreSQL)
 
 8 tables: users, products, suppliers, customers, purchase_orders, purchase_order_items, sales_orders, sales_order_items, stock_movements.
 
-sql.js returns rows as `[columns, values]` arrays. Every route file defines its own `rowsToObjects()` helper to convert these to plain objects.
+Both database modes return results in `[{ columns, values }]` format. Shared utility functions `rowsToObjects()`, `rowToObject()`, and `extractScalar()` in `database.js` convert these to plain objects.
+
+- **Local mode** (no `DATABASE_URL`): sql.js in-memory SQLite, persisted to `server/data/jin_xiao_cun.db`
+- **Cloud mode** (`DATABASE_URL` set): PostgreSQL via `pg.Pool`, auto-converts SQL dialect differences
 
 ### Order Status Flow
 
@@ -68,7 +71,7 @@ Purchase and sales orders follow: `pending` → `confirmed` → `returned`. Each
 
 ### Deployment
 
-`deploy/` contains Windows `.bat` scripts for setup, start/stop, Windows service registration, and database backup/restore.
+`deploy/` contains Windows `.bat` scripts for setup, start/stop, Windows service registration, and database backup/restore. Cloud deployment via **Zeabur** with built-in PostgreSQL — see README for details.
 
 ## Git Workflow
 
@@ -78,7 +81,7 @@ Purchase and sales orders follow: `pending` → `confirmed` → `returned`. Each
 
 ## Key Implementation Details
 
-- **sql.js persistence**: Unlike better-sqlite3 (referenced in PLAN.md), sql.js requires explicit `saveDb()` calls after writes. Forgetting this means data is lost on server restart.
+- **sql.js persistence** (local mode only): Unlike better-sqlite3, sql.js requires explicit `saveDb()` calls after writes. Forgetting this means data is lost on server restart. PostgreSQL mode auto-commits.
 - **No database transactions**: Multi-step mutations (order + items + stock updates) run as sequential `db.run()` calls without rollback capability.
 - **No pagination**: All list endpoints return complete result sets.
-- **Hardcoded config**: JWT secret, port (3001), and DB path are hardcoded — no `.env` support.
+- **Environment variables**: `DATABASE_URL` (PostgreSQL connection string), `JWT_SECRET` (JWT signing key), `PORT` (server port, default 3001).

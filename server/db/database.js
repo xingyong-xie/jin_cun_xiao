@@ -1,10 +1,10 @@
 const path = require('path');
 const fs = require('fs');
 
-const IS_VERCEL = !!process.env.VERCEL;
+const IS_POSTGRES = !!process.env.DATABASE_URL;
 
 let db = null;
-let tursoClient = null;
+let pgPool = null;
 
 // 共享工具函数：将查询结果转换为对象数组
 function rowsToObjects(result) {
@@ -34,23 +34,42 @@ function extractScalar(result, defaultValue = 0) {
   return val !== null && val !== undefined ? val : defaultValue;
 }
 
+// PostgreSQL: 将 ? 占位符转换为 $1, $2, $3...
+function convertPlaceholders(sql) {
+  let index = 0;
+  return sql.replace(/\?/g, () => `$${++index}`);
+}
+
+// PostgreSQL: 将 LIKE 转换为 ILIKE（大小写不敏感，匹配 SQLite 行为）
+function convertLike(sql) {
+  return sql.replace(/\bLIKE\b/g, 'ILIKE');
+}
+
+// PostgreSQL: 转换 SQL 语句
+function convertSql(sql) {
+  let converted = convertPlaceholders(sql);
+  converted = convertLike(converted);
+  return converted;
+}
+
 async function getDb() {
-  // 生产环境：Turso
-  if (IS_VERCEL) {
-    if (tursoClient) return tursoClient;
+  // 云环境：PostgreSQL
+  if (IS_POSTGRES) {
+    if (!pgPool) {
+      const { Pool } = require('pg');
+      pgPool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: process.env.DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false }
+      });
+    }
 
-    const { createClient } = require('@libsql/client');
-    const client = createClient({
-      url: process.env.TURSO_DATABASE_URL,
-      authToken: process.env.TURSO_AUTH_TOKEN,
-    });
-
-    // 包装 Turso 客户端，兼容 sql.js 的调用方式
-    tursoClient = {
+    // 返回与 sql.js 兼容的接口
+    return {
       async execute(sql, params = []) {
-        const result = await client.execute({ sql, args: params });
+        const converted = convertSql(sql);
+        const result = await pgPool.query(converted, params);
         // 转换为 sql.js 格式：[{ columns, values }]
-        const columns = result.columns || [];
+        const columns = result.fields ? result.fields.map(f => f.name) : [];
         if (!result.rows || result.rows.length === 0) {
           return [{ columns, values: [] }];
         }
@@ -61,12 +80,16 @@ async function getDb() {
       },
 
       async run(sql, params = []) {
-        const result = await client.execute({ sql, args: params });
-        return result;
+        let converted = convertSql(sql);
+        // INSERT 语句自动追加 RETURNING id
+        if (/^\s*INSERT\s/i.test(converted)) {
+          converted += ' RETURNING id';
+        }
+        const result = await pgPool.query(converted, params);
+        const lastInsertRowid = result.rows && result.rows.length > 0 ? result.rows[0].id : null;
+        return { lastInsertRowid };
       }
     };
-
-    return tursoClient;
   }
 
   // 本地开发：sql.js
@@ -109,7 +132,7 @@ async function getDb() {
 }
 
 function saveDb() {
-  if (IS_VERCEL) return; // Vercel 环境下 Turso 自动提交，无需手动保存
+  if (IS_POSTGRES) return; // PostgreSQL 自动提交
   if (!db) return;
   const DB_PATH = path.join(__dirname, '..', 'data', 'jin_xiao_cun.db');
   const data = db.export();
@@ -117,4 +140,4 @@ function saveDb() {
   fs.writeFileSync(DB_PATH, buffer);
 }
 
-module.exports = { getDb, saveDb, rowsToObjects, rowToObject, extractScalar };
+module.exports = { getDb, saveDb, rowsToObjects, rowToObject, extractScalar, IS_POSTGRES };

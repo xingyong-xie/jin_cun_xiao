@@ -1,5 +1,5 @@
 const express = require('express');
-const { getDb, rowsToObjects, extractScalar } = require('../db/database');
+const { getDb, rowsToObjects, extractScalar, IS_POSTGRES } = require('../db/database');
 const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
@@ -9,17 +9,22 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const db = await getDb();
 
+    // 今日日期过滤：PostgreSQL 用 CURRENT_DATE，SQLite 用 date('now','localtime')
+    const todayFilter = IS_POSTGRES
+      ? "DATE(created_at) = CURRENT_DATE"
+      : "date(created_at) = date('now', 'localtime')";
+
     // Today's purchase amount
     const todayPurchaseAmount = extractScalar(
       await db.execute(
-        "SELECT COALESCE(SUM(total_amount), 0) as total FROM purchase_orders WHERE status != 'pending' AND date(created_at) = date('now', 'localtime')"
+        `SELECT COALESCE(SUM(total_amount), 0) as total FROM purchase_orders WHERE status != 'pending' AND ${todayFilter}`
       )
     );
 
     // Today's sales amount
     const todaySalesAmount = extractScalar(
       await db.execute(
-        "SELECT COALESCE(SUM(total_amount), 0) as total FROM sales_orders WHERE status != 'pending' AND date(created_at) = date('now', 'localtime')"
+        `SELECT COALESCE(SUM(total_amount), 0) as total FROM sales_orders WHERE status != 'pending' AND ${todayFilter}`
       )
     );
 

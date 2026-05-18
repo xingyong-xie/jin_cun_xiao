@@ -16,7 +16,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Vercel 环境：数据库初始化中间件（每次冷启动时执行一次，必须放在路由之前）
+// 数据库初始化中间件（冷启动时执行一次）
 let dbInitialized = false;
 app.use(async (req, res, next) => {
   if (!dbInitialized) {
@@ -40,15 +40,15 @@ app.use('/api', (req, res) => {
   res.status(404).json({ error: '接口不存在' });
 });
 
-if (!process.env.VERCEL) {
-  // 本地开发：服务前端静态文件 + SPA fallback
-  const clientDist = path.join(__dirname, '..', 'client', 'dist');
-  app.use(express.static(clientDist));
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(clientDist, 'index.html'));
-  });
+// 服务前端静态文件 + SPA fallback（本地开发）
+const clientDist = path.join(__dirname, '..', 'client', 'dist');
+app.use(express.static(clientDist));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(clientDist, 'index.html'));
+});
 
-  // 启动 Express 服务器
+// 启动 Express 服务器
+if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('localhost')) {
   const PORT = process.env.PORT || 3001;
   async function start() {
     await initDatabase();

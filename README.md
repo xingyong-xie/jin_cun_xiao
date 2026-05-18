@@ -54,13 +54,11 @@ jin_cun_xiao/
 │   │       ├── inventory/         # 库存模块页面
 │   │       └── settings/          # 用户管理页面
 │   └── vite.config.js             # Vite 配置，开发代理
-├── api/                           # Vercel Serverless Function 入口
-│   └── index.js                   # Express app 导出
 ├── server/                        # 后端 Express 应用
-│   ├── index.js                   # 入口，挂载路由，条件性启动/导出
+│   ├── index.js                   # 入口，挂载路由，启动服务
 │   ├── db/
-│   │   ├── database.js            # 双模式适配器：sql.js(本地) / Turso(线上)
-│   │   └── init.js                # 建表 & 种子数据
+│   │   ├── database.js            # 双模式适配器：sql.js(本地) / PostgreSQL(Zeabur)
+│   │   └── init.js                # 双模式建表 & 种子数据
 │   ├── middleware/auth.js         # JWT 验证 + 角色权限守卫
 │   └── routes/                    # 按资源拆分的路由模块
 │       ├── auth.js                # 登录 & 用户管理
@@ -71,7 +69,6 @@ jin_cun_xiao/
 │       ├── sales.js               # 销售单（创建/确认/退货）
 │       ├── inventory.js           # 库存概览/预警/变动
 │       └── dashboard.js           # 仪表盘统计
-├── vercel.json                    # Vercel 部署配置
 └── deploy/                        # Windows 部署脚本
     ├── setup.bat                  # 一键安装
     ├── start.bat / stop.bat       # 启动/停止服务
@@ -86,9 +83,9 @@ jin_cun_xiao/
 | 层 | 技术 |
 |----|------|
 | 前端 | React 18 + Ant Design 5 + React Router 6 + Vite |
-| 后端 | Express 4 + sql.js (SQLite) / Turso (libSQL) |
+| 后端 | Express 4 + sql.js (SQLite) / PostgreSQL (Zeabur) |
 | 认证 | JWT (bcryptjs 加密密码，24h 过期) |
-| 数据库 | 本地：SQLite（sql.js 驱动） / 线上：Turso（libSQL 云数据库） |
+| 数据库 | 本地：SQLite（sql.js 驱动） / 线上：PostgreSQL（Zeabur 内置） |
 
 ### 核心业务流程
 
@@ -126,66 +123,50 @@ cd client && npm run build
 
 ## 部署
 
-### 方式一：Vercel 云部署（推荐）
+### 方式一：Zeabur 云部署（推荐）
 
-将项目部署到 Vercel，前端静态托管 + Serverless Function，数据库使用 Turso (libSQL) 云数据库。
+将项目部署到 Zeabur（国内节点，访问快速稳定），数据库使用 Zeabur 内置 PostgreSQL。
 
-#### 1. 创建 Turso 数据库
+#### 1. 注册 Zeabur
 
-```bash
-# 安装 Turso CLI
-curl -sSfL https://get.tur.so/install.sh | bash
+访问 [zeabur.com](https://zeabur.com) 注册账号，创建一个新项目。
 
-# 注册/登录
-turso auth signup
+#### 2. 添加 PostgreSQL 服务
 
-# 创建数据库
-turso db create jin-xiao-cun
+在项目中添加 **PostgreSQL** 服务，Zeabur 会自动注入 `DATABASE_URL` 环境变量。
 
-# 获取连接信息
-turso db show jin-xiao-cun --url          # → TURSO_DATABASE_URL
-turso db tokens create jin-xiao-cun       # → TURSO_AUTH_TOKEN
-```
+#### 3. 部署应用
 
-#### 2. 部署到 Vercel
+1. 在项目中添加 **Git 服务**，连接你的 GitHub 仓库
+2. 或使用 **预构建 Docker** 方式部署
+3. Zeabur 会自动检测并构建前后端
 
-```bash
-# 安装 Vercel CLI（如果没有）
-npm i -g vercel
+#### 4. 配置环境变量
 
-# 在项目根目录执行部署
-vercel
-```
-
-#### 3. 配置环境变量
-
-在 Vercel Dashboard → Settings → Environment Variables 中添加：
+在 Zeabur 服务设置中添加环境变量：
 
 | 变量名 | 值 | 说明 |
 |--------|-----|------|
-| `TURSO_DATABASE_URL` | `libsql://jin-xiao-cun-xxx.turso.co` | Turso 数据库连接地址 |
-| `TURSO_AUTH_TOKEN` | `eyJhbGci...` | Turso 认证令牌 |
 | `JWT_SECRET` | 自定义强密码（≥32位） | JWT 签名密钥 |
 
-> `VERCEL` 环境变量由 Vercel 自动设置，无需手动配置。
+> `DATABASE_URL` 由 Zeabur PostgreSQL 服务自动注入，无需手动配置。
 
-#### 4. 验证
+#### 5. 验证
 
-部署完成后访问 Vercel 分配的 URL，使用 `admin` / `admin123` 登录，数据库表会在首次访问时自动创建。
+部署完成后访问 Zeabur 分配的域名，使用 `admin` / `admin123` 登录，数据库表会在首次访问时自动创建。
 
 #### 架构说明
 
 ```
-Vercel 云部署架构：
-浏览器 → Vercel CDN (前端静态文件) + Serverless Function (/api) → Turso (云数据库)
+Zeabur 云部署架构：
+浏览器 → Zeabur (Express 服务，托管前端静态 + API) → PostgreSQL (Zeabur 内置)
 
 本地开发架构（不变）：
 浏览器 → Vite dev server (5173) → Express (3001) → sql.js (本地 SQLite 文件)
 ```
 
-- 前端：Vercel 自动构建 `client/` 并托管静态文件，SPA 路由通过 `vercel.json` rewrite 处理
-- API：所有 `/api/*` 请求路由到 `api/index.js`（Serverless Function），内部运行 Express 应用
-- 数据库：Vercel 环境自动使用 Turso 云数据库，本地开发仍使用 sql.js 本地文件
+- 服务：Express 同时托管前端静态文件和 API，无需额外配置
+- 数据库：检测到 `DATABASE_URL` 环境变量时自动切换为 PostgreSQL 模式，本地开发仍使用 sql.js 本地文件
 
 ### 方式二：Windows 脚本部署
 
@@ -214,7 +195,7 @@ cd ../server && npm install --production && node index.js
 
 ### 数据备份与恢复
 
-- **Vercel + Turso**：数据由 Turso 云端托管，无需手动备份。可在 Turso Dashboard 管理数据
+- **Zeabur + PostgreSQL**：数据由 Zeabur 托管 PostgreSQL 管理，支持自动备份
 - **Windows 部署**：运行 `deploy/backup.bat` 备份，运行 `deploy/restore.bat` 恢复
 
 ### 端口配置
@@ -230,4 +211,4 @@ set PORT=8080
 node server/index.js
 ```
 
-Vercel 部署无需配置端口。
+Vercel 部署无需配置端口。Zeabur 部署无需配置端口。
