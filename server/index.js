@@ -48,18 +48,16 @@ app.get('*', (req, res) => {
 });
 
 // 启动 Express 服务器
-if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('localhost')) {
-  const PORT = process.env.PORT || 3001;
-  async function start() {
-    await initDatabase();
-    app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
-  }
-  start().catch(err => {
-    console.error('Failed to start server:', err);
-    process.exit(1);
+const PORT = process.env.PORT || 3001;
+async function start() {
+  await initDatabase();
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
   });
 }
+start().catch(err => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
+});
 
 module.exports = app;
