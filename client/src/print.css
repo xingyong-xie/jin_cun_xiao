@@ -1,0 +1,29 @@
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  #print-area, #print-area * {
+    visibility: visible !important;
+  }
+  #print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 16px;
+    background: #fff;
+  }
+  .ant-modal-mask,
+  .ant-modal-wrap .ant-modal-header,
+  .ant-modal-wrap .ant-modal-footer,
+  .ant-modal-wrap .ant-modal-close {
+    display: none !important;
+  }
+  .ant-modal,
+  .ant-modal-content,
+  .ant-modal-body {
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+  }
+}

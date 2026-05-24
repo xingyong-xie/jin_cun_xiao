@@ -77,6 +77,7 @@ const SQLITE_TABLES = [
     quantity INTEGER NOT NULL,
     unit_price REAL NOT NULL,
     amount REAL NOT NULL,
+    delivery_type TEXT DEFAULT 'in_stock',
     FOREIGN KEY (order_id) REFERENCES sales_orders(id),
     FOREIGN KEY (product_id) REFERENCES products(id)
   )`,
@@ -162,7 +163,8 @@ const PG_TABLES = [
     product_id INTEGER NOT NULL REFERENCES products(id),
     quantity INTEGER NOT NULL,
     unit_price DOUBLE PRECISION NOT NULL,
-    amount DOUBLE PRECISION NOT NULL
+    amount DOUBLE PRECISION NOT NULL,
+    delivery_type TEXT DEFAULT 'in_stock'
   )`,
   `CREATE TABLE IF NOT EXISTS stock_movements (
     id SERIAL PRIMARY KEY,
@@ -175,6 +177,25 @@ const PG_TABLES = [
   )`
 ];
 
+async function migrateSalesOrderItemsDeliveryType(db) {
+  if (IS_POSTGRES) {
+    const result = await db.execute(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = 'sales_order_items' AND column_name = 'delivery_type'`
+    );
+    const exists = result && result[0] && result[0].values && result[0].values.length > 0;
+    if (!exists) {
+      await db.run(`ALTER TABLE sales_order_items ADD COLUMN delivery_type TEXT DEFAULT 'in_stock'`);
+    }
+  } else {
+    const result = await db.execute(`PRAGMA table_info(sales_order_items)`);
+    const cols = (result && result[0] && result[0].values) ? result[0].values.map(r => r[1]) : [];
+    if (!cols.includes('delivery_type')) {
+      await db.run(`ALTER TABLE sales_order_items ADD COLUMN delivery_type TEXT DEFAULT 'in_stock'`);
+    }
+  }
+}
+
 async function initDatabase() {
   const db = await getDb();
   const tables = IS_POSTGRES ? PG_TABLES : SQLITE_TABLES;
@@ -182,6 +203,8 @@ async function initDatabase() {
   for (const sql of tables) {
     await db.run(sql);
   }
+
+  await migrateSalesOrderItemsDeliveryType(db);
 
   // Create default admin user
   const result = await db.execute("SELECT id FROM users WHERE username = 'admin'");

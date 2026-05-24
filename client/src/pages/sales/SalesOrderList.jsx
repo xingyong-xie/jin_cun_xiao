@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Table, Button, Tag, Space, Select, Input, message, Popconfirm, Modal } from 'antd';
-import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, PrinterOutlined } from '@ant-design/icons';
 import api from '../../api';
 
 const statusMap = {
@@ -17,6 +17,8 @@ export default function SalesOrderList() {
   const [keyword, setKeyword] = useState('');
   const [detailOrder, setDetailOrder] = useState(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [printOrder, setPrintOrder] = useState(null);
+  const [printOpen, setPrintOpen] = useState(false);
   const navigate = useNavigate();
 
   const fetchOrders = async () => {
@@ -66,10 +68,38 @@ export default function SalesOrderList() {
     }
   };
 
+  const showPrint = async (id) => {
+    try {
+      const res = await api.get(`/sales-orders/${id}`);
+      const order = res.data;
+      const inStockItems = (order.items || []).filter(it => (it.delivery_type || 'in_stock') === 'in_stock');
+      if (inStockItems.length === 0) {
+        return message.warning('该单据无现货明细，无需开单');
+      }
+      setPrintOrder({ ...order, items: inStockItems });
+      setPrintOpen(true);
+    } catch (err) {
+      message.error('获取详情失败');
+    }
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const hasInStockItems = (record) =>
+    (record.items || []).some(it => (it.delivery_type || 'in_stock') === 'in_stock');
+
   const itemColumns = [
     { title: '商品编码', dataIndex: 'product_sku', key: 'product_sku' },
     { title: '商品名称', dataIndex: 'product_name', key: 'product_name' },
     { title: '单位', dataIndex: 'product_unit', key: 'product_unit' },
+    {
+      title: '类型', dataIndex: 'delivery_type', key: 'delivery_type',
+      render: v => v === 'pre_order'
+        ? <Tag color="blue">订货</Tag>
+        : <Tag color="cyan">现货</Tag>
+    },
     { title: '数量', dataIndex: 'quantity', key: 'quantity' },
     { title: '单价', dataIndex: 'unit_price', key: 'unit_price', render: v => `¥${v?.toFixed(2)}` },
     { title: '小计', dataIndex: 'amount', key: 'amount', render: v => `¥${v?.toFixed(2)}` },
@@ -86,6 +116,11 @@ export default function SalesOrderList() {
       title: '操作', key: 'action',
       render: (_, record) => (
         <Space>
+          {hasInStockItems(record) && (
+            <Button type="link" size="small" icon={<PrinterOutlined />} onClick={() => showPrint(record.id)}>
+              打印开单
+            </Button>
+          )}
           {record.status === 'pending' && (
             <Popconfirm title="确认出库？" onConfirm={() => handleConfirm(record.id)}>
               <Button type="link" size="small">确认出库</Button>
@@ -136,6 +171,73 @@ export default function SalesOrderList() {
           </div>
         )}
       </Modal>
+
+      <Modal
+        title="销售开单（现货）"
+        open={printOpen}
+        onCancel={() => setPrintOpen(false)}
+        width={780}
+        footer={[
+          <Button key="cancel" onClick={() => setPrintOpen(false)}>关闭</Button>,
+          <Button key="print" type="primary" icon={<PrinterOutlined />} onClick={handlePrint}>打印</Button>
+        ]}
+      >
+        {printOrder && (
+          <div id="print-area" className="sales-invoice">
+            <h2 style={{ textAlign: 'center', margin: '0 0 12px' }}>销 售 开 单</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span><strong>单号：</strong>{printOrder.order_no}</span>
+              <span><strong>日期：</strong>{printOrder.created_at}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+              <span><strong>客户：</strong>{printOrder.customer_name}</span>
+              <span><strong>联系电话：</strong>{printOrder.customer_phone || '—'}</span>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: '#f5f5f5' }}>
+                  <th style={cellStyle}>序号</th>
+                  <th style={cellStyle}>商品编码</th>
+                  <th style={cellStyle}>商品名称</th>
+                  <th style={cellStyle}>单位</th>
+                  <th style={cellStyle}>数量</th>
+                  <th style={cellStyle}>单价</th>
+                  <th style={cellStyle}>金额</th>
+                </tr>
+              </thead>
+              <tbody>
+                {printOrder.items.map((it, idx) => (
+                  <tr key={it.id}>
+                    <td style={cellStyle}>{idx + 1}</td>
+                    <td style={cellStyle}>{it.product_sku}</td>
+                    <td style={cellStyle}>{it.product_name}</td>
+                    <td style={cellStyle}>{it.product_unit}</td>
+                    <td style={cellStyle}>{it.quantity}</td>
+                    <td style={cellStyle}>¥{Number(it.unit_price).toFixed(2)}</td>
+                    <td style={cellStyle}>¥{Number(it.amount).toFixed(2)}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td style={cellStyle} colSpan={6}><strong>合计</strong></td>
+                  <td style={cellStyle}>
+                    <strong>¥{printOrder.items.reduce((s, it) => s + Number(it.amount || 0), 0).toFixed(2)}</strong>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 32, fontSize: 13 }}>
+              <span>制单人：{printOrder.operator_name}</span>
+              <span>客户签收：__________________</span>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
+
+const cellStyle = {
+  border: '1px solid #999',
+  padding: '6px 8px',
+  textAlign: 'center'
+};

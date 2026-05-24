@@ -127,9 +127,10 @@ router.post('/', authMiddleware, async (req, res) => {
     const orderId = Number(orderResult.lastInsertRowid);
 
     for (const item of items) {
+      const deliveryType = item.delivery_type === 'pre_order' ? 'pre_order' : 'in_stock';
       await db.run(
-        'INSERT INTO sales_order_items (order_id, product_id, quantity, unit_price, amount) VALUES (?, ?, ?, ?, ?)',
-        [orderId, item.product_id, item.quantity, item.unit_price, item.quantity * item.unit_price]
+        'INSERT INTO sales_order_items (order_id, product_id, quantity, unit_price, amount, delivery_type) VALUES (?, ?, ?, ?, ?, ?)',
+        [orderId, item.product_id, item.quantity, item.unit_price, item.quantity * item.unit_price, deliveryType]
       );
     }
 

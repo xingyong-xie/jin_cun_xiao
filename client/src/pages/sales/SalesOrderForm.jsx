@@ -17,7 +17,7 @@ export default function SalesOrderForm() {
   }, []);
 
   const addItem = () => {
-    setItems([...items, { key: Date.now(), product_id: null, quantity: 1, unit_price: 0, amount: 0 }]);
+    setItems([...items, { key: Date.now(), product_id: null, quantity: 1, unit_price: 0, amount: 0, delivery_type: 'in_stock' }]);
   };
 
   const removeItem = (key) => {
@@ -62,7 +62,8 @@ export default function SalesOrderForm() {
         items: items.map(item => ({
           product_id: item.product_id,
           quantity: item.quantity,
-          unit_price: item.unit_price
+          unit_price: item.unit_price,
+          delivery_type: item.delivery_type || 'in_stock'
         }))
       });
       message.success('销货单创建成功');
@@ -85,6 +86,16 @@ export default function SalesOrderForm() {
               </Tag>
             </Select.Option>
           ))}
+        </Select>
+      )
+    },
+    {
+      title: '类型', dataIndex: 'delivery_type', key: 'delivery_type', width: 110,
+      render: (v, record) => (
+        <Select value={v || 'in_stock'} onChange={val => updateItem(record.key, 'delivery_type', val)}
+          style={{ width: '100%' }}>
+          <Select.Option value="in_stock">现货</Select.Option>
+          <Select.Option value="pre_order">订货</Select.Option>
         </Select>
       )
     },
