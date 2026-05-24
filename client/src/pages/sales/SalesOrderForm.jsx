@@ -4,7 +4,12 @@ import { Form, Select, Button, Table, InputNumber, message, Card, Space, Tag } f
 import { PlusOutlined, DeleteOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import api from '../../api';
 
-export default function SalesOrderForm() {
+export default function SalesOrderForm({ orderType = 'in_stock' }) {
+  const isPreOrder = orderType === 'pre_order';
+  const pageTitle = isPreOrder ? '订货单' : '现货单';
+  const listPath = isPreOrder ? '/sales/pre-orders' : '/sales/in-stock-orders';
+  const defaultDeliveryType = isPreOrder ? 'pre_order' : 'in_stock';
+
   const [form] = Form.useForm();
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
@@ -17,7 +22,7 @@ export default function SalesOrderForm() {
   }, []);
 
   const addItem = () => {
-    setItems([...items, { key: Date.now(), product_id: null, quantity: 1, unit_price: 0, amount: 0, delivery_type: 'in_stock' }]);
+    setItems([...items, { key: Date.now(), product_id: null, quantity: 1, unit_price: 0, amount: 0, delivery_type: defaultDeliveryType }]);
   };
 
   const removeItem = (key) => {
@@ -57,17 +62,32 @@ export default function SalesOrderForm() {
         return message.error('请选择所有商品');
       }
 
-      await api.post('/sales-orders', {
+      const res = await api.post('/sales-orders', {
         customer_id: values.customer_id,
+        order_type: orderType,
         items: items.map(item => ({
           product_id: item.product_id,
           quantity: item.quantity,
           unit_price: item.unit_price,
-          delivery_type: item.delivery_type || 'in_stock'
+          delivery_type: item.delivery_type || defaultDeliveryType
         }))
       });
-      message.success('销货单创建成功');
-      navigate('/sales/orders');
+
+      const { primary, secondary } = res.data || {};
+      const typeName = t => t === 'pre_order' ? '订货单' : '现货单';
+
+      if (primary && secondary) {
+        message.success(`${typeName(primary.type)} ${primary.order_no} 与 ${typeName(secondary.type)} ${secondary.order_no} 已创建`);
+      } else if (primary) {
+        message.success(`${typeName(primary.type)} ${primary.order_no} 创建成功`);
+      } else if (secondary) {
+        message.success(`明细全部为${typeName(secondary.type === 'pre_order' ? 'pre_order' : 'in_stock')}，已生成 ${typeName(secondary.type)} ${secondary.order_no}`);
+      }
+
+      // 决定跳转：有主单则跳主单列表，否则跳副单列表
+      const targetType = primary ? primary.type : secondary?.type;
+      const targetPath = targetType === 'pre_order' ? '/sales/pre-orders' : '/sales/in-stock-orders';
+      navigate(targetPath);
     } catch (err) {
       if (err.response) message.error(err.response?.data?.error || '创建失败');
     }
@@ -103,8 +123,11 @@ export default function SalesOrderForm() {
       title: '数量', dataIndex: 'quantity', key: 'quantity', width: 100,
       render: (v, record) => {
         const product = products.find(p => p.id === record.product_id);
+        const max = isPreOrder || (record.delivery_type === 'pre_order')
+          ? 999999
+          : (product?.stock_quantity || 999);
         return (
-          <InputNumber min={1} max={product?.stock_quantity || 999} value={v}
+          <InputNumber min={1} max={max} value={v}
             onChange={val => updateItem(record.key, 'quantity', val)} style={{ width: '100%' }} />
         );
       }
@@ -130,10 +153,10 @@ export default function SalesOrderForm() {
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/sales/orders')}>返回列表</Button>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(listPath)}>返回列表</Button>
       </div>
 
-      <Card title="创建销货单">
+      <Card title={`创建${pageTitle}`}>
         <Form form={form} layout="inline" style={{ marginBottom: 16 }}>
           <Form.Item name="customer_id" label="客户" rules={[{ required: true, message: '请选择客户' }]}>
             <Select style={{ width: 250 }} placeholder="选择客户" showSearch optionFilterProp="label">
@@ -156,7 +179,7 @@ export default function SalesOrderForm() {
 
         <div style={{ marginTop: 16, textAlign: 'right' }}>
           <Space>
-            <Button onClick={() => navigate('/sales/orders')}>取消</Button>
+            <Button onClick={() => navigate(listPath)}>取消</Button>
             <Button type="primary" onClick={handleSubmit}>提交</Button>
           </Space>
         </div>

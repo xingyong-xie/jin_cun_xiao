@@ -4,26 +4,31 @@ const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 
-function generateOrderNo() {
+function generateOrderNo(orderType) {
   const now = new Date();
   const dateStr = now.getFullYear().toString() +
     String(now.getMonth() + 1).padStart(2, '0') +
     String(now.getDate()).padStart(2, '0');
   const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-  return `SO${dateStr}${random}`;
+  const prefix = orderType === 'pre_order' ? 'PO' : 'SO';
+  return `${prefix}${dateStr}${random}`;
 }
 
 // List sales orders
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const db = await getDb();
-    const { status, keyword, start_date, end_date } = req.query;
+    const { status, keyword, start_date, end_date, order_type } = req.query;
     let sql = `SELECT so.*, c.name as customer_name, u.username as operator_name
                FROM sales_orders so
                LEFT JOIN customers c ON so.customer_id = c.id
                LEFT JOIN users u ON so.operator_id = u.id WHERE 1=1`;
     const params = [];
 
+    if (order_type) {
+      sql += ' AND so.order_type = ?';
+      params.push(order_type);
+    }
     if (status) {
       sql += ' AND so.status = ?';
       params.push(status);
@@ -95,47 +100,76 @@ router.get('/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// Create sales order
+// Create sales order (auto-split by delivery_type)
 router.post('/', authMiddleware, async (req, res) => {
   try {
     const db = await getDb();
-    const { customer_id, items } = req.body;
+    const { customer_id, items, order_type } = req.body;
+    const orderType = order_type === 'pre_order' ? 'pre_order' : 'in_stock';
 
     if (!customer_id || !items || items.length === 0) {
       return res.status(400).json({ error: '请选择客户并添加商品' });
     }
 
-    // Check stock availability
+    // 校验商品存在
     for (const item of items) {
       const productResult = await db.execute('SELECT stock_quantity, name FROM products WHERE id = ?', [item.product_id]);
       const product = rowToObject(productResult);
       if (!product) {
         return res.status(400).json({ error: `商品ID ${item.product_id} 不存在` });
       }
+    }
+
+    const inStockItems = items.filter(it => (it.delivery_type || 'in_stock') === 'in_stock');
+    const preOrderItems = items.filter(it => it.delivery_type === 'pre_order');
+
+    // 仅现货明细校验库存（订货明细不校验）
+    for (const item of inStockItems) {
+      const productResult = await db.execute('SELECT stock_quantity, name FROM products WHERE id = ?', [item.product_id]);
+      const product = rowToObject(productResult);
       if (product.stock_quantity < item.quantity) {
         return res.status(400).json({ error: `商品「${product.name}」库存不足，当前库存: ${product.stock_quantity}` });
       }
     }
 
-    const orderNo = generateOrderNo();
-    const totalAmount = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
-
-    const orderResult = await db.run(
-      'INSERT INTO sales_orders (order_no, customer_id, total_amount, status, operator_id) VALUES (?, ?, ?, ?, ?)',
-      [orderNo, customer_id, totalAmount, 'pending', req.user.id]
-    );
-    const orderId = Number(orderResult.lastInsertRowid);
-
-    for (const item of items) {
-      const deliveryType = item.delivery_type === 'pre_order' ? 'pre_order' : 'in_stock';
-      await db.run(
-        'INSERT INTO sales_order_items (order_id, product_id, quantity, unit_price, amount, delivery_type) VALUES (?, ?, ?, ?, ?, ?)',
-        [orderId, item.product_id, item.quantity, item.unit_price, item.quantity * item.unit_price, deliveryType]
+    async function createOne(type, lst) {
+      if (lst.length === 0) return null;
+      const orderNo = generateOrderNo(type);
+      const totalAmount = lst.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
+      const orderResult = await db.run(
+        'INSERT INTO sales_orders (order_no, customer_id, total_amount, status, order_type, operator_id) VALUES (?, ?, ?, ?, ?, ?)',
+        [orderNo, customer_id, totalAmount, 'pending', type, req.user.id]
       );
+      const orderId = Number(orderResult.lastInsertRowid);
+      for (const item of lst) {
+        const dt = item.delivery_type === 'pre_order' ? 'pre_order' : 'in_stock';
+        await db.run(
+          'INSERT INTO sales_order_items (order_id, product_id, quantity, unit_price, amount, delivery_type) VALUES (?, ?, ?, ?, ?, ?)',
+          [orderId, item.product_id, item.quantity, item.unit_price, item.quantity * item.unit_price, dt]
+        );
+      }
+      return { id: orderId, order_no: orderNo, type };
     }
 
+    // 按用户当前页面（orderType）决定哪边是主单
+    const primaryType = orderType;
+    const secondaryType = orderType === 'in_stock' ? 'pre_order' : 'in_stock';
+    const primaryList = orderType === 'in_stock' ? inStockItems : preOrderItems;
+    const secondaryList = orderType === 'in_stock' ? preOrderItems : inStockItems;
+
+    const primary = await createOne(primaryType, primaryList);
+    const secondary = await createOne(secondaryType, secondaryList);
+
     saveDb();
-    res.json({ message: '销货单创建成功', id: orderId, order_no: orderNo });
+
+    res.json({
+      message: '创建成功',
+      primary,
+      secondary,
+      // 兼容旧字段
+      id: primary ? primary.id : secondary?.id,
+      order_no: primary ? primary.order_no : secondary?.order_no
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

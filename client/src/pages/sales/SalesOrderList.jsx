@@ -10,7 +10,9 @@ const statusMap = {
   returned: { text: '已退货', color: 'red' }
 };
 
-export default function SalesOrderList() {
+export default function SalesOrderList({ orderType = 'in_stock' }) {
+  const isPreOrder = orderType === 'pre_order';
+  const pageTitle = isPreOrder ? '订货单' : '现货单';
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
@@ -24,19 +26,19 @@ export default function SalesOrderList() {
   const fetchOrders = async () => {
     setLoading(true);
     try {
-      const params = {};
+      const params = { order_type: orderType };
       if (status) params.status = status;
       if (keyword) params.keyword = keyword;
       const res = await api.get('/sales-orders', { params });
       setOrders(res.data);
     } catch (err) {
-      message.error('获取销货单列表失败');
+      message.error(`获取${pageTitle}列表失败`);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { fetchOrders(); }, []);
+  useEffect(() => { fetchOrders(); }, [orderType]);
 
   const handleConfirm = async (id) => {
     try {
@@ -116,7 +118,7 @@ export default function SalesOrderList() {
       title: '操作', key: 'action',
       render: (_, record) => (
         <Space>
-          {hasInStockItems(record) && (
+          {!isPreOrder && hasInStockItems(record) && (
             <Button type="link" size="small" icon={<PrinterOutlined />} onClick={() => showPrint(record.id)}>
               打印开单
             </Button>
@@ -150,8 +152,8 @@ export default function SalesOrderList() {
             onPressEnter={fetchOrders} style={{ width: 200 }} />
           <Button icon={<SearchOutlined />} onClick={fetchOrders}>搜索</Button>
         </Space>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/sales/orders/new')}>
-          新增销货单
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate(isPreOrder ? '/sales/pre-orders/new' : '/sales/in-stock-orders/new')}>
+          新增{pageTitle}
         </Button>
       </div>
 
@@ -160,7 +162,7 @@ export default function SalesOrderList() {
           <Table columns={itemColumns} dataSource={record.items} rowKey="id" pagination={false} size="small" />
         )}} />
 
-      <Modal title="销货单详情" open={detailOpen} onCancel={() => setDetailOpen(false)} footer={null} width={700}>
+      <Modal title={`${pageTitle}详情`} open={detailOpen} onCancel={() => setDetailOpen(false)} footer={null} width={700}>
         {detailOrder && (
           <div>
             <p><strong>单号：</strong>{detailOrder.order_no}</p>

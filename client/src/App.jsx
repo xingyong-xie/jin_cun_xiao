@@ -36,7 +36,8 @@ const menuItems = [
     key: 'sales', icon: <ContainerOutlined />, label: '销货管理',
     children: [
       { key: '/sales/customers', icon: <TeamOutlined />, label: '客户管理' },
-      { key: '/sales/orders', icon: <ShoppingCartOutlined />, label: '销货单' },
+      { key: '/sales/in-stock-orders', icon: <ShoppingCartOutlined />, label: '现货单' },
+      { key: '/sales/pre-orders', icon: <ShoppingCartOutlined />, label: '订货单' },
     ]
   },
   {
@@ -99,8 +100,12 @@ function AppLayout() {
             <Route path="/purchase/orders" element={<PurchaseOrderList />} />
             <Route path="/purchase/orders/new" element={<PurchaseOrderForm />} />
             <Route path="/sales/customers" element={<CustomerList />} />
-            <Route path="/sales/orders" element={<SalesOrderList />} />
-            <Route path="/sales/orders/new" element={<SalesOrderForm />} />
+            <Route path="/sales/orders" element={<Navigate to="/sales/in-stock-orders" replace />} />
+            <Route path="/sales/orders/new" element={<Navigate to="/sales/in-stock-orders/new" replace />} />
+            <Route path="/sales/in-stock-orders" element={<SalesOrderList orderType="in_stock" />} />
+            <Route path="/sales/in-stock-orders/new" element={<SalesOrderForm orderType="in_stock" />} />
+            <Route path="/sales/pre-orders" element={<SalesOrderList orderType="pre_order" />} />
+            <Route path="/sales/pre-orders/new" element={<SalesOrderForm orderType="pre_order" />} />
             <Route path="/inventory/products" element={<ProductList />} />
             <Route path="/inventory/overview" element={<StockOverview />} />
             <Route path="/inventory/alerts" element={<StockAlert />} />

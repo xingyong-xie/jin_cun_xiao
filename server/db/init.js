@@ -65,6 +65,7 @@ const SQLITE_TABLES = [
     customer_id INTEGER NOT NULL,
     total_amount REAL DEFAULT 0,
     status TEXT DEFAULT 'pending',
+    order_type TEXT DEFAULT 'in_stock',
     operator_id INTEGER NOT NULL,
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (customer_id) REFERENCES customers(id),
@@ -154,6 +155,7 @@ const PG_TABLES = [
     customer_id INTEGER NOT NULL REFERENCES customers(id),
     total_amount DOUBLE PRECISION DEFAULT 0,
     status TEXT DEFAULT 'pending',
+    order_type TEXT DEFAULT 'in_stock',
     operator_id INTEGER NOT NULL REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`,
@@ -196,6 +198,40 @@ async function migrateSalesOrderItemsDeliveryType(db) {
   }
 }
 
+async function migrateSalesOrdersOrderType(db) {
+  let needBackfill = false;
+  if (IS_POSTGRES) {
+    const result = await db.execute(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = 'sales_orders' AND column_name = 'order_type'`
+    );
+    const exists = result && result[0] && result[0].values && result[0].values.length > 0;
+    if (!exists) {
+      await db.run(`ALTER TABLE sales_orders ADD COLUMN order_type TEXT DEFAULT 'in_stock'`);
+      needBackfill = true;
+    }
+  } else {
+    const result = await db.execute(`PRAGMA table_info(sales_orders)`);
+    const cols = (result && result[0] && result[0].values) ? result[0].values.map(r => r[1]) : [];
+    if (!cols.includes('order_type')) {
+      await db.run(`ALTER TABLE sales_orders ADD COLUMN order_type TEXT DEFAULT 'in_stock'`);
+      needBackfill = true;
+    }
+  }
+
+  if (needBackfill) {
+    // 全部明细都是 pre_order 的订单 → 标记为订货单；其余保持 in_stock
+    await db.run(`
+      UPDATE sales_orders SET order_type = 'pre_order'
+      WHERE id IN (
+        SELECT order_id FROM sales_order_items
+        GROUP BY order_id
+        HAVING MIN(delivery_type) = 'pre_order' AND MAX(delivery_type) = 'pre_order'
+      )
+    `);
+  }
+}
+
 async function initDatabase() {
   const db = await getDb();
   const tables = IS_POSTGRES ? PG_TABLES : SQLITE_TABLES;
@@ -205,6 +241,7 @@ async function initDatabase() {
   }
 
   await migrateSalesOrderItemsDeliveryType(db);
+  await migrateSalesOrdersOrderType(db);
 
   // Create default admin user
   const result = await db.execute("SELECT id FROM users WHERE username = 'admin'");
